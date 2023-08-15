@@ -9,7 +9,6 @@ import tiktoken
 import langdetect
 from langdetect import detect
 
-import google
 from google.cloud import texttospeech
 
 from telegram import Update
@@ -20,7 +19,7 @@ PATH = os.getcwd()
 
 # Define the paths to the chat history and keys access directories
 PATH_CHAT_HISTORY = os.path.join(PATH, 'chat_history')
-PATH_KEYS_ACCESS = os.path.join(PATH, 'keys_access')
+PATH_KEYS_ACCESS = os.path.join(PATH, 'keys_access_test')
 
 # Define the name of the AI model to use and telegram bot username
 BOT_USERNAME = 'soundspeakerbot'
