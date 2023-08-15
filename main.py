@@ -40,17 +40,16 @@ SYSTEM_MESSAGE = f"""
                         Speaky - A joke. 😂😂😂
 
                     Use emojis and not formal style but make answer very short and simple. 
-                    Also you must use the same languge in your answear as the user in his prompt.
                 """
 
 # Define the maximum number of messages that can be stored in the chat history file
 MAX_CHAT_HISTORY_LEN = 10000
 
 # Define the maximum number of last messages that used in gpt dialog messages
-MAX_CHAT_MEMORY_LEN = 40
+MAX_CHAT_MEMORY_LEN = 100
 
 # Define the maximum number of tokens that can be used by the AI model at all
-MAX_TOKENS = 500
+MAX_TOKENS = 1000
 
 # Define the maximum number of tokens that can be used for the output of the AI model
 MAX_OUTPUT_TOKENS = 60
@@ -58,15 +57,31 @@ MAX_OUTPUT_TOKENS = 60
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # Define a function to create a comment for the user prompt
-make_user_prompt = lambda text: {"role": "user", "content": f"""
+make_user_prompt = lambda text, language: {"role": "user", "content": f"""
                                                             {text}
 
-                                                            <Be brief and responde in 1-15 words.>                        
+                                                            <Be brief and responde in 1-15 words using language-"{language}".>                        
                                                             """}
 
 # Define a function to get a number messages from the chat history
 get_message_from_history = lambda chat_history, number: chat_history[list(chat_history.keys())[number]] 
 
+# Define a function to get language code of text
+def check_lanuage(text):
+    """Check the language of the text.
+    Args:
+        text (str): text to check.
+    Returns:
+        language code for example "en"
+    """
+
+    try:
+        languge_code = detect(text)
+    except langdetect.lang_detect_exception.LangDetectException:
+        print("Can't detect language so using 'en'")
+        languge_code = 'en'
+
+    return languge_code
 
 # Define a function to check if a path exists
 def check_if_needed_path_exist(pathes=[PATH_CHAT_HISTORY,PATH_KEYS_ACCESS]):
@@ -215,7 +230,8 @@ def make_chatbot_history(chat_history):
             messages.append({'role':'assistant', 'content': massege_data["message_text"]})
         else:
             if (index+1) == len(chat_key_list):
-                messages.append(make_user_prompt(massege_data["message_text"]))
+                language_code = check_lanuage(massege_data["message_text"])
+                messages.append(make_user_prompt(massege_data["message_text"], language_code))
             else:
                 messages.append({'role':'user', 'content': massege_data["message_text"]})
     
@@ -341,12 +357,8 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         start_lang = time.time()
 
-        # Try check languge of copmletion text message
-        try:
-            languge_code = detect(result)
-        except langdetect.lang_detect_exception.LangDetectException:
-            print("Can't detect language so using 'en'")
-            languge_code = 'en'
+        # Check language of copmletion text message
+        language_code = check_lanuage(result)
 
         print(f'\t\t\tLANG DETECT TAKE - {time.time() - start_lang}S')
 
@@ -355,7 +367,7 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Generate voice message from gpt text completion using checked language before.
         try:
             synthesis_input = texttospeech.SynthesisInput(text=result)
-            voice = texttospeech.VoiceSelectionParams(language_code=languge_code, ssml_gender=texttospeech.SsmlVoiceGender.FEMALE )
+            voice = texttospeech.VoiceSelectionParams(language_code=language_code, ssml_gender=texttospeech.SsmlVoiceGender.FEMALE )
             audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
             response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
             speech = response.audio_content
