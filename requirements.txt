@@ -1,0 +1,4 @@
+tiktoken
+langdetect
+google-cloud-texttospeech
+python-telegram-bot

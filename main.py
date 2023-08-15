@@ -2,6 +2,7 @@ import logging
 import json
 import openai
 import os
+import sys
 import time
 import tiktoken
 import langdetect
@@ -11,16 +12,16 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 from google.cloud import texttospeech
 from langdetect import detect
 
-
-PATH_CHAT_HISTORY = 'chat_history'
-PATH_KEYS_ACCESS = 'keys_access'
+PATH = os.getcwd()
+PATH_CHAT_HISTORY = os.path.join(PATH, 'chat_history')
+PATH_KEYS_ACCESS = os.path.join(PATH, 'keys_access')
 
 BOT_USERNAME = 'soundspeakerbot'
 AI_MODEL_NAME = "gpt-3.5-turbo"
 SYSTEM_MESSAGE = f"""
                     Your name is "Speaky".
                     Your mission is to speak effectively and fast.
-                    For that you need to make very short result. 
+                    For that you need to make very short and clear anwear. 
 
                     Example:
                         user - I'm a little sad.
@@ -47,6 +48,13 @@ make_user_prompt = lambda text: {"role": "user", "content": f"""
 get_message_from_history = lambda chat_history, number: chat_history[list(chat_history.keys())[number]] 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+def check_if_needed_path_exist(pathes=[PATH_CHAT_HISTORY,PATH_KEYS_ACCESS]):
+    for path in pathes:
+        full_path = os.path.join(PATH, path)
+        if not os.path.exists(full_path):
+            os.mkdir(full_path)
+            print(f'Folder - "{full_path}" created')
 
 def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613"):
     """Return the number of tokens used by a list of messages."""
@@ -88,7 +96,7 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613"):
 
 def load_json_file(file_name, path=PATH_CHAT_HISTORY):
     """Loads a JSON file as a dictionary."""
-    file = os.path.join(path, str(file_name +'.json'))
+    file = os.path.join(PATH, path, str(file_name +'.json'))
     if os.path.isfile(file):
         try:
             with open(file, "r") as f:
@@ -124,29 +132,6 @@ def save_message(chat_name, chat_id, user_id, message_id, username, message_text
 
     chat_history = load_json_file(chat_name)
     return chat_history
-
-def format_chat_from_json2text(chat_history, number_of_messages):
-    list_history_slice = list(chat_history.keys())
-
-    if len(list_history_slice) > number_of_messages:
-        list_history_slice = list_history_slice[-number_of_messages:]
-    chat_text = ''
-
-    for key in list_history_slice:
-        chat_element = chat_history[key]
-        string = f"@{chat_element['username']} : {chat_element['message_text']}\n"
-        chat_text += string
-
-    prompt = make_prompt(chat_text)
-    tokens_number = len(token_encoder.encode(prompt[0]['content']))
-    print('Start tokens', tokens_number)
-    while tokens_number > MAX_TOKENS:
-        chat_text = chat_text[100:]
-        prompt = make_prompt(chat_text)
-        tokens_number = len(prompt[0]['content'])
-    print('End tokens', tokens_number)
-
-    return chat_text
 
 def make_chatbot_history(chat_history):
     all_messages =  [{'role':'system', 'content':SYSTEM_MESSAGE}]
@@ -237,7 +222,6 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
         start_load_save = time.time()
 
         chat_history = load_json_file(chat_name)
-        # print(chat_history)
         chatbot_messages = make_chatbot_history(chat_history)
         print(f'\t\t\tLOAD SAVE TAKE - {time.time() - start_load_save}S')
 
@@ -280,12 +264,17 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
         print(f'\t\t\tREQUEST TAKE - {time.time() - start_time}S')
                             
 if __name__ == '__main__':
+    check_if_needed_path_exist()
     keys_dict = load_json_file('keys', PATH_KEYS_ACCESS)
     token_encoder = tiktoken.encoding_for_model(AI_MODEL_NAME)
 
-    openai.api_key = keys_dict['openai']
-    application = ApplicationBuilder().token(keys_dict['telegram']).build()
-    client = texttospeech.TextToSpeechClient.from_service_account_json(os.path.join(PATH_KEYS_ACCESS,'key_google_cloud.json'))
+    try:
+        openai.api_key = keys_dict['openai']
+        application = ApplicationBuilder().token(keys_dict['telegram']).build()
+        client = texttospeech.TextToSpeechClient.from_service_account_json(os.path.join(PATH_KEYS_ACCESS,'key_google_cloud.json'))
+    except TypeError:
+        print(f'There is no API keys in folder "{PATH_KEYS_ACCESS}" or they are not correct.')
+        sys.exit(1)
     
     start_handler = CommandHandler('start', start)
     message_handler = MessageHandler(filters.TEXT, text_message_parser)
