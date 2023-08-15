@@ -1,4 +1,5 @@
 tiktoken
+openai
 langdetect
 google-cloud-texttospeech
 python-telegram-bot
