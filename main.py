@@ -2,16 +2,15 @@ import logging
 import json
 import openai
 import os
+import re
 import sys
 import time
 import tiktoken
 
-import langdetect
-from langdetect import detect
-
+import google
 from google.cloud import texttospeech
 
-from telegram import Update
+from telegram import Update,  ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
 # Set the path to the project directory
@@ -19,7 +18,7 @@ PATH = os.getcwd()
 
 # Define the paths to the chat history and keys access directories
 PATH_CHAT_HISTORY = os.path.join(PATH, 'chat_history')
-PATH_KEYS_ACCESS = os.path.join(PATH, 'keys_access_test')
+PATH_KEYS_ACCESS = os.path.join(PATH, 'keys_access')
 
 # Define the name of the AI model to use and telegram bot username
 BOT_USERNAME = 'soundspeakerbot'
@@ -56,31 +55,19 @@ MAX_OUTPUT_TOKENS = 60
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # Define a function to create a comment for the user prompt
-make_user_prompt = lambda text, language: {"role": "user", "content": f"""
-                                                            {text}
-
-                                                            <Be brief and responde in 1-15 words using language-"{language}".>                        
+make_user_prompt = lambda text: {"role": "user", "content": f"""\
+                                                            {text}\
+\
+                                                            '''\
+                                                            Be brief and response in 1-18 words in the same language.\
+                                                            Write language code of language that you use in answer on new line in pipe brackets as in example below:\
+                                                            |en|\
+                                                            '''             
                                                             """}
 
 # Define a function to get a number messages from the chat history
 get_message_from_history = lambda chat_history, number: chat_history[list(chat_history.keys())[number]] 
 
-# Define a function to get language code of text
-def check_lanuage(text):
-    """Check the language of the text.
-    Args:
-        text (str): text to check.
-    Returns:
-        language code for example "en"
-    """
-
-    try:
-        languge_code = detect(text)
-    except langdetect.lang_detect_exception.LangDetectException:
-        print("Can't detect language so using 'en'")
-        languge_code = 'en'
-
-    return languge_code
 
 # Define a function to check if a path exists
 def check_if_needed_path_exist(pathes=[PATH_CHAT_HISTORY,PATH_KEYS_ACCESS]):
@@ -229,8 +216,7 @@ def make_chatbot_history(chat_history):
             messages.append({'role':'assistant', 'content': massege_data["message_text"]})
         else:
             if (index+1) == len(chat_key_list):
-                language_code = check_lanuage(massege_data["message_text"])
-                messages.append(make_user_prompt(massege_data["message_text"], language_code))
+                messages.append(make_user_prompt(massege_data["message_text"]))
             else:
                 messages.append({'role':'user', 'content': massege_data["message_text"]})
     
@@ -301,12 +287,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Save the message to the chat history.
     save_message(username, user_id,  user_id, message_id, username, message_text='/start')
 
+    buttons = [[KeyboardButton('/clear_memory')]]
+    keyboard = ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+
     # Send a welcome message to the user.
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="""Hello, I'm your personal companion. 😄\n
-                                                                            You can talk with me and ask me an intresting question.""")
+    await context.bot.send_message(chat_id=user_id, text="""Hello, I'm your personal companion. 😄\nYou can talk with me and ask me an intresting question.""", reply_markup=keyboard)
     # Save the bot's message to the chat history.
-    save_message(username, user_id,  user_id, message_id+1, BOT_USERNAME, message_text= """Hello, I'm your personal companion. 😄\n
-                                                                            You can talk with me and ask me an intresting question.""")
+    save_message(username, user_id,  user_id, message_id+1, BOT_USERNAME, message_text= """Hello, I'm your personal companion. 😄\nYou can talk with me and ask me an intresting question.""")
+
+# define a function to delete messages history.
+async def clear_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Removed massages history file from directory
+
+    Args:
+        update (Update): The update object.
+        context (ContextTypes.DEFAULT_TYPE): The context object.
+    """
+
+    # Get the user information.
+    username = update.effective_user.username
+    user_id = update.effective_user.id
+
+    file_path = os.path.join(PATH_CHAT_HISTORY, username+'.json')
+
+    # Check if history file exist and delete it.
+    if os.path.isfile(file_path):
+        os.remove(file_path)
+        await context.bot.send_message(chat_id=user_id, text="You message history removed succesfully, to start new one send any message. 😄")
+    else:
+        await context.bot.send_message(chat_id=user_id, text="There is no message history with you, to start new one send any message. 😅")
 
 
 # define a function to react on text messages.
@@ -355,9 +364,16 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
         await context.bot.edit_message_text(". .", chat_id, message_id+1)
 
         start_lang = time.time()
+        
+        regex2language_code = r'\|(.*)\|'
+        
+        # Get language from GPT completion
+        try:
+            language_code = re.findall(regex2language_code, result)[-1]
+        except IndexError:
+            language_code = 'en'
 
-        # Check language of copmletion text message
-        language_code = check_lanuage(result)
+        result_fomated = re.sub(regex2language_code, '', result)
 
         print(f'\t\t\tLANG DETECT TAKE - {time.time() - start_lang}S')
 
@@ -365,7 +381,7 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Generate voice message from gpt text completion using checked language before.
         try:
-            synthesis_input = texttospeech.SynthesisInput(text=result)
+            synthesis_input = texttospeech.SynthesisInput(text=result_fomated)
             voice = texttospeech.VoiceSelectionParams(language_code=language_code, ssml_gender=texttospeech.SsmlVoiceGender.FEMALE )
             audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
             response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
@@ -385,7 +401,7 @@ async def text_message_parser(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         # Send the response to the user.
         await context.bot.send_voice(chat_id, speech)
-        await context.bot.send_message(chat_id, result)
+        await context.bot.send_message(chat_id, result_fomated)
 
         print(f'\t\t\tSEND TAKE - {time.time() - start_send}S')
 
@@ -412,10 +428,12 @@ if __name__ == '__main__':
     
     # Create the handlers.
     start_handler = CommandHandler('start', start)
+    clear_memory_handler = CommandHandler('clear_memory', clear_memory)
     message_handler = MessageHandler(filters.TEXT, text_message_parser)
 
     # Add the handlers to the application.
     application.add_handler(start_handler)
+    application.add_handler(clear_memory_handler)
     application.add_handler(message_handler)
     
     # Run the application.
