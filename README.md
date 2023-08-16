@@ -38,7 +38,6 @@ Speaky is a Telegram bot that uses voice messages to communicate with people. It
 
     * openai
     * tiktoken
-    * langdetect
     * google-cloud-texttospeech
     * python-telegram-bot
 
